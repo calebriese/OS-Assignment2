@@ -2,7 +2,7 @@ CC 	 = gcc
 CFLAGS   = -std=c11 -w
 TARGET   = master
 OBJFILES =
-SOURCE = main.c
+SOURCE = master.c
   
 $(TARGET): $(OBJFILES)  
 	$(CC) -o $(TARGET) $(SOURCE) $(CFLAGS) 
