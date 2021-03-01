@@ -119,18 +119,20 @@ int main(int argc, char * argv[])
         int numberOfProcesses = lineCount/2;
         for(int i = 0; i < numberOfProcesses; i++)
         {
-            if (fork() == 0)
-            {
-                int sum = 0;
-                int firstIndex = i * pow(2, depth);
-                int secondIndex = firstIndex + pow(2,(depth - 1));
-                sum += sharedMemory[firstIndex];
-                sum += sharedMemory[secondIndex];
-                sharedMemory[firstIndex] = sum;
-                printf("depth:%d , i:%d , index:%d , Sum:%d\n", depth, i, firstIndex, sum);
-                printf("depth:%d , i:%d , index:%d , Sum:%d\n", depth, i, secondIndex, sum);
-                exit(0);
-            }
+            char *args[]={"./BIN_ADDER",NULL};
+            execvp(args[0], args);
+//            if (fork() == 0)
+//            {
+//                int sum = 0;
+//                int firstIndex = i * pow(2, depth);
+//                int secondIndex = firstIndex + pow(2,(depth - 1));
+//                sum += sharedMemory[firstIndex];
+//                sum += sharedMemory[secondIndex];
+//                sharedMemory[firstIndex] = sum;
+//                printf("depth:%d , i:%d , index:%d , Sum:%d\n", depth, i, firstIndex, sum);
+//                printf("depth:%d , i:%d , index:%d , Sum:%d\n", depth, i, secondIndex, sum);
+//                exit(0);
+//            }
         }
         int status;
         for (int i = 0; i < numberOfProcesses ; ++i) //Main Parent is waiting until this many
