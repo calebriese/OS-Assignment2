@@ -41,70 +41,6 @@ void checkArgument(char * input, char * myError) //checks if parameter is a digi
     }
 }
 
-int readIndexFromString(char * input, int index, int lineCount)
-{
-    int count = 0;
-    int i = 0;
-    char holder[5];
-    int letter = 0;
-    while (count < lineCount)
-    {
-        if (input[i] == 10) //10 is newline, 0 is \0
-        {
-            count++;
-        }
-        if (input[i] != 10 && input[i] != 0 && count == index)
-        {
-            holder[letter] = input[i];
-            letter++;
-        }
-        i++;
-    }
-    return atoi(holder);
-}
-
-//void readArrayFromMem(char * input, int lineCount)
-//{
-//
-//    int count = 0;
-//    int i = 0;
-//    char holder[5];
-//    int letter = 0;
-//    while (count < lineCount)
-//    {
-//        if (input[i] == 10) //10 is newline, 0 is \0
-//        {
-//            count++;
-//        }
-//        if (input[i] != 10 && input[i] != 0 && count == index)
-//        {
-//            holder[letter] = input[i];
-//            letter++;
-//        }
-//        i++;
-//    }
-//    return atoi(holder);
-//}
-
-int overwriteSHM(char * input, int assignedIndex, int blankIndex, int lineCount, char stringArray[256][5], int sum)
-{
-    sprintf(stringArray[assignedIndex], "%d", sum);
-    for (int j = 0; j < 5; j++)
-    {
-        stringArray[assignedIndex+1][j] = '\0';
-    }
-
-
-
-    //char blank[1024] = {};
-    //strcpy(input,blank);
-    for (int i = 0; i < lineCount; i++)
-    {
-        strcat(input,stringArray[i]);
-    }
-    strcat(input,"\n");
-}
-
 int main(int argc, char * argv[])
 {
     int opt;
@@ -145,7 +81,7 @@ int main(int argc, char * argv[])
 
     FILE * inputFile;
     char filename[128];
-    strcpy(filename, argv[argc - 1]); //change to last index, I THINK I DID ALREADY
+    strcpy(filename, argv[argc - 1]);
     inputFile = fopen(filename, "r");
     if (inputFile == NULL)
     {
@@ -154,11 +90,9 @@ int main(int argc, char * argv[])
         return 1;
     }
 
-
     int lineCount = countNonBlankLines(inputFile);
-    char stringArray[256][5]; //not sure how dynamically to linecount
-    int index = 0;
     rewind(inputFile);
+    int index = 0;
     int integerArray[lineCount];
     char holder[5] = {};
     while (fgets(holder, 5, inputFile)) //5 bytes 256\n\0 null and terminating
@@ -166,76 +100,57 @@ int main(int argc, char * argv[])
         integerArray[index] = atoi(holder);
         index++;
     }
-
-
-    key_t keyI = ftok("shmfileI",65);
-    int shmidI = shmget(keyI,512,0666|IPC_CREAT);
-    int * sharedIntegerArray = (int*) shmat(shmidI,(void*)0,0);
-    if (fork() == 0)
-    {
-        for (int i = 0; i < lineCount; i++)
-        {
-            sharedIntegerArray[i] = integerArray[i];
-        }
-        exit(0);
-    }
-    wait(1);
-    for (int i = 0; i < lineCount; i++)
-    {
-        printf("Shared: %d\n",sharedIntegerArray[i]);
-    }
+    fclose(inputFile);
 
 
     key_t key = ftok("shmfile",65);
-    int shmid = shmget(key,1024,0666|IPC_CREAT);
-    char * str = (char*) shmat(shmid,(void*)0,0);
+    int shmid = shmget(key,512,0666|IPC_CREAT);
+    int * sharedMemory = (int*) shmat(shmid, (void*)0, 0);
     for (int i = 0; i < lineCount; i++)
     {
-        strcat(str,stringArray[i]);
+        sharedMemory[i] = integerArray[i];
     }
-    strcat(str,"\n");
 
 
 
-    int level = 1;
-    int origLineCount = lineCount;
+    int depth = 1;
     while (lineCount > 1)
     {
-        printf("\nlevel:%d\n",level);
         int numberOfProcesses = lineCount/2;
         for(int i = 0; i < numberOfProcesses; i++)
         {
             if (fork() == 0)
             {
                 int sum = 0;
-                int firstIndex = i * pow(2,level);
-                int secondIndex = firstIndex + pow(2,(level-1));
-                sum += readIndexFromString(str,firstIndex,lineCount);
-                sum += readIndexFromString(str,secondIndex,lineCount);
-                overwriteSHM(str, firstIndex, secondIndex, origLineCount, stringArray, sum); //giveOriginal lineCount
-                printf("level:%d , i:%d , index:%d , Sum:%d\n",level, i, firstIndex, sum);
-                printf("level:%d , i:%d , index:%d , Sum:%d\n",level, i, secondIndex, sum);
+                int firstIndex = i * pow(2, depth);
+                int secondIndex = firstIndex + pow(2,(depth - 1));
+                sum += sharedMemory[firstIndex];
+                sum += sharedMemory[secondIndex];
+                sharedMemory[firstIndex] = sum;
+                printf("depth:%d , i:%d , index:%d , Sum:%d\n", depth, i, firstIndex, sum);
+                printf("depth:%d , i:%d , index:%d , Sum:%d\n", depth, i, secondIndex, sum);
                 exit(0);
             }
         }
         int status;
-        for (int i = 0; i < numberOfProcesses ; ++i)
+        for (int i = 0; i < numberOfProcesses ; ++i) //Main Parent is waiting until this many
+        {
             wait(&status);
+        }
         lineCount = lineCount/2;
-        level++;
+        depth++;
     }
 
-    printf("Parent:\n%s\nEND",str);
 
 
 
 
 
-    shmdt(str);
+
+
+    printf("End Sum: %d", sharedMemory[0]);
+    shmdt(sharedMemory);
     sleep(2);
     shmctl(shmid,IPC_RMID,NULL); //should only be done by ONE process after all are done
-    shmctl(shmidI,IPC_RMID,NULL);
-    fclose(inputFile);
-    //printf("\nEnd");
     return 0;
 }
