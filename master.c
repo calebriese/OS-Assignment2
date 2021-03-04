@@ -1,6 +1,6 @@
 //Author: Caleb Riese
 //Date: 2/19/2021
-
+#define _XOPEN_SOURCE 700
 #include <stdio.h>
 #include <getopt.h>
 #include <ctype.h>
