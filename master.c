@@ -10,21 +10,30 @@
 #include <errno.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <time.h>
+#include <signal.h>
 #include <math.h>
-//void countNonBlankLines(FILE * inputFile, char *myError)
-//fork, exec, wait, exit, shmget, shmctl, shmat, shmdt
 
-int countNonBlankLines(FILE * inputFile) //counts lines in file that arent blank
+
+void sig_handler(int sig)//called for ctrl c and alarm
+{
+    printf("Handler Function\n");
+    //exit()? gets rid of shared memory
+    //Ctrl-c and free up the shared memory, send a kill signal to the child and then terminate itself.
+}
+
+int countNonBlankLines(FILE * inputFile) //counts the lines in file that arent blank
 {
     int lineCount = 0;
-    char line[5];
-    while (fgets(line, 5, inputFile))
+    char line[10];
+    while (fgets(line, 10, inputFile))
     {
         if (line[0] != '\n') //if the line is not blank, then line count goes up
         {
             lineCount++;
         }
     }
+    rewind(inputFile);
     return lineCount;
 }
 
@@ -43,6 +52,11 @@ void checkArgument(char * input, char * myError) //checks if parameter is a digi
 
 int main(int argc, char * argv[])
 {
+
+    signal(SIGINT,sig_handler); //Ctrl-C
+    signal(SIGALRM,sig_handler); //alarm()
+    //signal(SIGCHLD,sig_handler); //Child process finishes
+
     int opt;
     char myError[256] = "";
     strcat(myError, argv[0]);
@@ -64,47 +78,64 @@ int main(int argc, char * argv[])
             case 's':
                 checkArgument(optarg,myError);
                 maxChildren = atoi(optarg);
-                printf("children allowed: %d\n",maxChildren);
+                printf("Max Children: %d\n",maxChildren);
                 break;
             case 't':
                 checkArgument(optarg,myError);
                 maxTime = atoi(optarg);
-                printf("time allowed: %d\n",maxTime);
+                printf("Max Time: %d\n",maxTime);
                 break;
             case '?':
                 printf("Unknown Option\n");
                 errno = EINVAL;
                 perror(myError);
-                return 1;
+                exit(EXIT_FAILURE);
         }
     }
+    alarm(maxTime);
 
+
+    //Opens the file
     FILE * inputFile;
-    char filename[128];
-    strcpy(filename, argv[argc - 1]);
-    inputFile = fopen(filename, "r");
+    inputFile = fopen(argv[argc - 1], "r");
     if (inputFile == NULL)
     {
         errno = ENOENT;
         perror(myError);
-        return 1;
+        exit(EXIT_FAILURE);
     }
 
+
+    //Parses the file to an integer array and fills in zeros
     int lineCount = countNonBlankLines(inputFile);
-    rewind(inputFile);
+    double logOfLines = log2(lineCount);
+    if ((logOfLines - (int)logOfLines) != 0.0)
+    {
+        lineCount = (int)pow(2,ceil(log2(lineCount)));
+    }
     int index = 0;
     int integerArray[lineCount];
-    char holder[5] = {};
-    while (fgets(holder, 5, inputFile)) //5 bytes 256\n\0 null and terminating
+    char holder[10] = {};
+    while (fgets(holder, 10, inputFile))
     {
         integerArray[index] = atoi(holder);
         index++;
     }
     fclose(inputFile);
+    while (index < lineCount)//fill remaining index's with 0
+    {
+        integerArray[index] = 0;
+        index++;
+    }
 
 
-    key_t key = ftok("shmfile",65);
-    int shmid = shmget(key,512,0666|IPC_CREAT);
+
+
+
+    //Shared Memory Code
+    key_t key = ftok("README",1); //CHANGE WHEN ON HOARE
+    printf("parent key:%d\n", key);
+    int shmid = shmget(key,sizeof(integerArray),0666|IPC_CREAT);
     int * sharedMemory = (int*) shmat(shmid, (void*)0, 0);
     for (int i = 0; i < lineCount; i++)
     {
@@ -112,47 +143,52 @@ int main(int argc, char * argv[])
     }
 
 
-
+    //Sum Of Integers/Child Processes Code
     int depth = 1;
+    int status;
     while (lineCount > 1)
     {
         int numberOfProcesses = lineCount/2;
         for(int i = 0; i < numberOfProcesses; i++)
         {
-            char *args[]={"./BIN_ADDER",NULL};
-            execvp(args[0], args);
-//            if (fork() == 0)
-//            {
-//                int sum = 0;
-//                int firstIndex = i * pow(2, depth);
-//                int secondIndex = firstIndex + pow(2,(depth - 1));
-//                sum += sharedMemory[firstIndex];
-//                sum += sharedMemory[secondIndex];
-//                sharedMemory[firstIndex] = sum;
-//                printf("depth:%d , i:%d , index:%d , Sum:%d\n", depth, i, firstIndex, sum);
-//                printf("depth:%d , i:%d , index:%d , Sum:%d\n", depth, i, secondIndex, sum);
-//                exit(0);
-//            }
+            pid_t pid = fork();
+            if (pid == -1)//fork() error
+            {
+                perror(myError);//fork() sets errno itself
+                exit(EXIT_FAILURE);
+            }
+            else if (pid == 0)//Child Process
+            {
+                char iString[64];
+                sprintf(iString, "%d", i);
+                char depthString[64];
+                sprintf(depthString, "%d", depth);
+                char * args[] = {"./BIN_ADDER", iString, depthString, NULL};
+
+                execvp(args[0], args);
+                exit(EXIT_FAILURE);//In case exec fails this keeps the child from continuing, otherwise its ignored
+            }
         }
-        int status;
-        for (int i = 0; i < numberOfProcesses ; ++i) //Main Parent is waiting until this many
+        for (int i = 0; i < numberOfProcesses; i++)//Parent waits for all children before next depth starts
         {
-            wait(&status);
+            pid_t pid = wait(&status);
+            printf("Process %i finished\n", pid);
+//            1. WIFEXITED(status): child exited normally
+//            • WEXITSTATUS(status): return code when child exits
+//
+//            2. WIFSIGNALED(status): child exited because a signal was not caught
+//            • WTERMSIG(status): gives the number of the terminating signal
+//
+//            3. WIFSTOPPED(status): child is stopped
+//            • WSTOPSIG(status): gives the number of the stop signal
         }
+
         lineCount = lineCount/2;
         depth++;
     }
 
-
-
-
-
-
-
-
-    printf("End Sum: %d", sharedMemory[0]);
+    printf("Final Sum: %d\n", sharedMemory[0]);
     shmdt(sharedMemory);
-    sleep(2);
     shmctl(shmid,IPC_RMID,NULL); //should only be done by ONE process after all are done
     return 0;
 }
