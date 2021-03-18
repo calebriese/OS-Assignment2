@@ -1,9 +1,0 @@
-# Assignment 2
-
-Compile: run the command "make"
-
-Clean: run the command "make clean"
-
-Problems Encountered:
-This project took a lot of time, most of my problems involved shared memory and how it works.
-Terminating all of the child processes and deleting the shared memory segment took a lot of trial and error but I eventually got it.
